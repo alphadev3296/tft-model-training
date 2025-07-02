@@ -9,7 +9,7 @@ class Config(BaseSettings):
     MAX_PREDICTION_LENGTH: int = 12  # predict next 12 steps
 
     BATCH_SIZE: int = 64
-    EPOCHS: int = 30
+    MAX_EPOCHS: int = 30
     SEED: int = 42
     TARGET_COL: str = "target"
 

@@ -118,7 +118,7 @@ class Train:
         # Train
         logger.info("Training...")
         trainer = Trainer(
-            max_epochs=cfg_train.EPOCHS,
+            max_epochs=cfg_train.MAX_EPOCHS,
             gradient_clip_val=0.1,
             callbacks=[early_stop_callback, checkpoint_callback],
             accelerator="auto",
