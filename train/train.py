@@ -15,6 +15,14 @@ from shared.config.train import config as cfg_train
 class Train:
     @classmethod
     def train(cls, dataset_filepath: str, model_filepath: str) -> None:
+        """
+        Train model
+
+        Args:
+            dataset_filepath (str): Path to dataset
+            model_filepath (str): Path to model to be saved
+        """
+
         # Set seed for reproducibility
         seed_everything(cfg_train.SEED)
 
@@ -100,8 +108,8 @@ class Train:
         # Callbacks
         early_stop_callback = EarlyStopping(monitor="val_loss", patience=5, mode="min")
         checkpoint_callback = ModelCheckpoint(
-            dirpath=model_filepath,
-            filename="best_model",
+            dirpath=cfg_common.MODEL_DIR,
+            filename=cfg_common.CHECKPOINT_FILENAME,
             save_top_k=1,
             monitor="val_loss",
             mode="min",
@@ -136,9 +144,15 @@ class Train:
         plt.xlabel("Time step")
         plt.ylabel("Target")
         plt.grid()
-        plt.show()
+        plt.savefig("prediction_vs_actual.png")
 
-        logger.success("✅ Training complete. Best model saved to:", best_model_path)
+        logger.success(f"Training complete. Best checkpoint saved to: {best_model_path}")
+
+        # Save model
+        logger.info("Saving model...")
+        trainer.save_checkpoint(model_filepath)
+
+        logger.success(f"Model saved to: {model_filepath}")
 
 
 if __name__ == "__main__":
