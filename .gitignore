@@ -3,4 +3,7 @@ __pycache__
 .mypy_cache
 .ruff_cache
 
-dataset
+.vscode
+
+dataset/
+lightning_logs/

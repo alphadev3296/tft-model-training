@@ -1,93 +1,148 @@
+import matplotlib.pyplot as plt
 import pandas as pd
-import numpy as np
 import torch
-from pytorch_lightning import Trainer
-from pytorch_lightning.callbacks import EarlyStopping, LearningRateMonitor
-from pytorch_forecasting import TimeSeriesDataSet, TemporalFusionTransformer, Baseline
-from pytorch_forecasting.data import NaNLabelEncoder
-from pytorch_forecasting.metrics import SMAPE
-from sklearn.model_selection import train_test_split
+from lightning.pytorch import Trainer, seed_everything
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from loguru import logger
+from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
+from pytorch_forecasting.data import GroupNormalizer
+from pytorch_forecasting.metrics import QuantileLoss
 
-# Load your CSV
-df = pd.read_csv("your_data.csv", parse_dates=["timestamp"])
+from shared.config.common import config as cfg_common
+from shared.config.train import config as cfg_train
 
-# Ensure timestamp is sorted
-df = df.sort_values(["asset", "timestamp"])
 
-# Create time_idx as integer index
-df["time_idx"] = df.groupby("asset").cumcount()
+class Train:
+    @classmethod
+    def train(cls, dataset_filepath: str, model_filepath: str) -> None:
+        # Set seed for reproducibility
+        seed_everything(cfg_train.SEED)
 
-# Normalize volume
-df["volume"] = np.log1p(df["volume"])
+        # Load data
+        logger.info("Loading data...")
+        df = pd.read_csv(dataset_filepath, parse_dates=["timestamp"])
+        df = df.sort_values(["asset", "timestamp"])
 
-# Parameters
-max_encoder_length = 48
-max_prediction_length = 12
+        # Create time index (relative to earliest timestamp)
+        logger.info("Creating time index...")
+        df["time_idx"] = (df["timestamp"] - df["timestamp"].min()).dt.total_seconds() // cfg_train.TIME_IDX_STEP_SECONDS
+        df["time_idx"] = df["time_idx"].astype(int)
 
-# Define training dataset
-training = TimeSeriesDataSet(
-    df,
-    time_idx="time_idx",
-    target="target",
-    group_ids=["asset"],
-    max_encoder_length=max_encoder_length,
-    max_prediction_length=max_prediction_length,
-    time_varying_unknown_reals=["target"],
-    time_varying_known_reals=[
-        "hour", "minute", "day_of_week", "hour_sin", "hour_cos", "dow_sin", "dow_cos",
-        "open", "high", "low", "close", "volume", "rsi", "macd", 
-        "bollinger_h", "bollinger_l", "sma_20", "ema_20"
-    ],
-    target_normalizer=NaNLabelEncoder(),
-    add_relative_time_idx=True,
-    add_target_scales=True,
-    add_encoder_length=True,
-)
+        # Normalize continuous features (except sin/cos or target)
+        logger.info("Normalizing continuous features...")
+        features_to_normalize = [
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "rsi",
+            "macd",
+            "bollinger_h",
+            "bollinger_l",
+            "sma_20",
+            "ema_20",
+        ]
+        for col in features_to_normalize:
+            df[col] = (df[col] - df[col].mean()) / df[col].std()
 
-# Split dataset
-train_dataset, val_dataset = training.split_before(0.8)
+        # Convert categoricals to string type for proper encoding
+        logger.info("Converting categoricals to string type...")
+        categorical_cols = ["hour", "minute", "day_of_week", "asset"]
+        for col in categorical_cols:
+            df[col] = df[col].astype(str)
 
-# Dataloaders
-from torch.utils.data import DataLoader
+        # Fill missing values
+        df = df.fillna(method="ffill").fillna(method="bfill")
 
-train_dataloader = train_dataset.to_dataloader(train=True, batch_size=64, num_workers=4)
-val_dataloader = val_dataset.to_dataloader(train=False, batch_size=64, num_workers=4)
+        # Train/val split by time
+        logger.info("Creating train/val split...")
+        last_train_time = df["time_idx"].max() - cfg_train.MAX_PREDICTION_LENGTH
+        train_df = df[df["time_idx"] <= last_train_time]
+        val_df = df[df["time_idx"] > last_train_time - cfg_train.MAX_ENCODER_LENGTH]
 
-# Define model
-tft = TemporalFusionTransformer.from_dataset(
-    training,
-    learning_rate=0.001,
-    hidden_size=16,
-    attention_head_size=1,
-    dropout=0.1,
-    loss=SMAPE(),
-    log_interval=10,
-    reduce_on_plateau_patience=4,
-)
+        # Define TimeSeriesDataSet
+        training = TimeSeriesDataSet(
+            train_df,
+            time_idx="time_idx",
+            target=cfg_train.TARGET_COL,
+            group_ids=["asset"],
+            max_encoder_length=cfg_train.MAX_ENCODER_LENGTH,
+            max_prediction_length=cfg_train.MAX_PREDICTION_LENGTH,
+            static_categoricals=["asset"],
+            time_varying_known_categoricals=["hour", "minute", "day_of_week"],
+            time_varying_known_reals=["hour_sin", "hour_cos", "dow_sin", "dow_cos"],
+            time_varying_unknown_reals=[*features_to_normalize, cfg_train.TARGET_COL],
+            target_normalizer=GroupNormalizer(groups=["asset"]),
+            add_relative_time_idx=True,
+            add_target_scales=True,
+            add_encoder_length=True,
+        )
 
-# Callbacks
-early_stop = EarlyStopping(monitor="val_loss", patience=5, verbose=True, mode="min")
-lr_logger = LearningRateMonitor()
+        validation = TimeSeriesDataSet.from_dataset(training, val_df, stop_randomization=True)
 
-# Trainer
-trainer = Trainer(
-    max_epochs=30,
-    accelerator="auto",
-    callbacks=[early_stop, lr_logger],
-    gradient_clip_val=0.1,
-)
+        # Create dataloaders
+        train_loader = training.to_dataloader(train=True, batch_size=cfg_train.BATCH_SIZE, num_workers=4)
+        val_loader = validation.to_dataloader(train=False, batch_size=cfg_train.BATCH_SIZE, num_workers=4)
 
-# Train
-trainer.fit(
-    tft,
-    train_dataloaders=train_dataloader,
-    val_dataloaders=val_dataloader,
-)
+        # Define model
+        tft = TemporalFusionTransformer.from_dataset(
+            training,
+            learning_rate=1e-3,
+            hidden_size=16,
+            attention_head_size=1,
+            dropout=0.1,
+            loss=QuantileLoss(),
+            log_interval=10,
+            reduce_on_plateau_patience=4,
+        )
 
-# Save model
-tft.save("tft_model")
+        # Callbacks
+        early_stop_callback = EarlyStopping(monitor="val_loss", patience=5, mode="min")
+        checkpoint_callback = ModelCheckpoint(
+            dirpath=model_filepath,
+            filename="best_model",
+            save_top_k=1,
+            monitor="val_loss",
+            mode="min",
+        )
 
-# Evaluate
-actuals = torch.cat([y[0] for x, y in iter(val_dataloader)])
-predictions = tft.predict(val_dataloader)
-print(f"SMAPE: {SMAPE()(predictions, actuals)}")
+        # Train
+        logger.info("Training...")
+        trainer = Trainer(
+            max_epochs=cfg_train.EPOCHS,
+            gradient_clip_val=0.1,
+            callbacks=[early_stop_callback, checkpoint_callback],
+            accelerator="auto",
+            devices=1,
+        )
+
+        trainer.fit(model=tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
+
+        # Load best model
+        best_model_path = checkpoint_callback.best_model_path
+        tft = TemporalFusionTransformer.load_from_checkpoint(best_model_path)
+
+        # ---------------- EVALUATION ---------------- #
+        actuals = torch.cat([y[0] for x, y in iter(val_loader)])
+        predictions = tft.predict(val_loader)
+
+        # Plot predictions vs actuals (first asset batch)
+        plt.figure(figsize=(10, 5))
+        plt.plot(actuals[: cfg_train.MAX_PREDICTION_LENGTH].detach().cpu().numpy(), label="Actual")
+        plt.plot(predictions[: cfg_train.MAX_PREDICTION_LENGTH].detach().cpu().numpy(), label="Prediction")
+        plt.legend()
+        plt.title("Prediction vs Actual")
+        plt.xlabel("Time step")
+        plt.ylabel("Target")
+        plt.grid()
+        plt.show()
+
+        logger.success("✅ Training complete. Best model saved to:", best_model_path)
+
+
+if __name__ == "__main__":
+    Train.train(
+        dataset_filepath=cfg_common.DATASET_FILEPATH,
+        model_filepath=cfg_common.MODEL_FILEPATH,
+    )
