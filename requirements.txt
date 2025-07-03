@@ -7,6 +7,7 @@ numpy==2.0.2
 optuna==4.4.0
 pandas==2.3.0
 pydantic-settings==2.10.1 # includes pydantic
+pytest==8.4.1
 pytorch-forecasting==1.4.0
 pytorch-lightning==2.5.2
 ruff==0.12.1

@@ -1,67 +1,61 @@
-import time
 from datetime import datetime, timezone
 
-import ccxt
 import numpy as np
 import pandas as pd
 import ta  # For technical indicators
 from dateutil.relativedelta import relativedelta
 from loguru import logger
-from tqdm import tqdm
 
 from shared.config.common import config as cfg_common
 from shared.config.train import config as cfg_train
+from shared.services.binance import Binance
 
 
 class Dataset:
     @classmethod
-    def generate_dataset(cls, dataset_size: int, filepath: str) -> None:
+    def generate_binance_dataset(cls, dataset_size: int, filepath: str | None = None) -> pd.DataFrame:
         # --- Init ---
-        symbol = "BTC/USDT"
-        exchange = ccxt.binance()
-        exchange.load_markets()
-        time_delta = relativedelta(minutes=dataset_size)
-        resolution_ms = cfg_train.TIME_IDX_STEP_SECS * 1000
-        limit = 1000  # Max per request
+        binance = Binance()
+        time_delta = relativedelta(minutes=dataset_size + 100)
 
         # --- Step 1: Download OHLCV data in chunks ---
         logger.info("Downloading data from Binance...")
-
-        all_data = []
 
         utc_now = datetime.now(tz=timezone.utc)  # noqa: UP017
         start_date = (utc_now - time_delta).isoformat()
         logger.info(f"Start date: {start_date}")
 
-        since = exchange.parse8601(start_date)
-        now = exchange.milliseconds()
-
-        progress_bar = tqdm(total=(now - since) // resolution_ms)
-
-        while since < now:
-            try:
-                ohlcv = exchange.fetch_ohlcv(symbol, timeframe="1m", since=since, limit=limit)
-                if not ohlcv:
-                    break
-                since = ohlcv[-1][0] + resolution_ms
-                all_data.extend(ohlcv)
-                progress_bar.update(limit)
-                time.sleep(0.1)  # avoid rate limits
-            except Exception as e:
-                logger.error(e)
-                time.sleep(5)
-
-        progress_bar.close()
+        all_data = binance.fetch_historical_ohlcvs(
+            from_tstamp_ms=binance.parse8601(start_date),
+            to_tstamp_ms=binance.milliseconds(),
+        )
 
         # --- Step 2: Format into DataFrame ---
         logger.info("Processing data...")
+        df = cls.convert_ohlcvs_to_dataframe(all_data)
+        df = df.tail(dataset_size)
 
-        df = pd.DataFrame(all_data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        # --- Save ---
+        if filepath:
+            df.to_csv(filepath)
+            logger.info(f"✅ Dataset saved to: {filepath}")
+
+        logger.info(f"Total samples: {len(df):,}")
+
+        return df
+
+    @classmethod
+    def convert_ohlcvs_to_dataframe(cls, ohlcvs: list[list[int | float]]) -> pd.DataFrame:
+        """
+        Convert list of ohlcvs to DataFrame.
+        The first 26+ rows will be dropped as they are incomplete in some columns.
+        """
+        df = pd.DataFrame(ohlcvs, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
         df = df.set_index("timestamp")
         df = df.astype(float)
 
-        # --- Step 3: Add time-based and cyclical features ---
+        # Add time-based and cyclical features
         df["hour"] = df.index.hour
         df["minute"] = df.index.minute
         df["day_of_week"] = df.index.dayofweek
@@ -72,7 +66,7 @@ class Dataset:
         df["dow_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
         df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
 
-        # --- Step 4: Technical Indicators ---
+        # Technical Indicators
         df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
         df["macd"] = ta.trend.MACD(df["close"]).macd()
         df["bollinger_h"] = ta.volatility.BollingerBands(df["close"]).bollinger_hband()
@@ -80,21 +74,16 @@ class Dataset:
         df["sma_20"] = ta.trend.SMAIndicator(df["close"], window=20).sma_indicator()
         df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
 
-        # --- Step 5: Target column (next-minute return) ---
+        # Target column (next-minute return)
         df["target"] = df["close"].pct_change().shift(-1)
 
-        # --- Step 6: Clean ---
+        # Clean
         df["asset"] = "BTC"
-        df = df.dropna()
-
-        # --- Save ---
-        df.to_csv(filepath)
-        logger.info(f"✅ Dataset saved to: {filepath}")
-        logger.info(f"Total samples: {len(df):,}")
+        return df.dropna()
 
 
 if __name__ == "__main__":
-    Dataset.generate_dataset(
+    Dataset.generate_binance_dataset(
         dataset_size=cfg_train.DATASET_SIZE,
         filepath=cfg_common.DATASET_FILEPATH,
     )
