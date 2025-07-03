@@ -1,3 +1,5 @@
+import multiprocessing
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
@@ -57,9 +59,8 @@ class Train:
 
         # Train/val split by time
         logger.info("Creating train/val split...")
-        last_train_time = df[DSCols.TIME_IDX.value].max() - cfg_train.MAX_PREDICTION_LENGTH
-        train_df = df[df[DSCols.TIME_IDX.value] <= last_train_time]
-        val_df = df[df[DSCols.TIME_IDX.value] > last_train_time - cfg_train.MAX_ENCODER_LENGTH]
+        training_cutoff = df[DSCols.TIME_IDX.value].max() - cfg_train.MAX_PREDICTION_LENGTH
+        train_df = df[df[DSCols.TIME_IDX.value] <= training_cutoff]
 
         # Define TimeSeriesDataSet
         training = TimeSeriesDataSet(
@@ -109,11 +110,19 @@ class Train:
             add_encoder_length=True,
         )
 
-        validation = TimeSeriesDataSet.from_dataset(training, val_df, stop_randomization=True)
+        validation = TimeSeriesDataSet.from_dataset(training, df, predict=True, stop_randomization=True)
 
         # Create dataloaders
-        train_loader = training.to_dataloader(train=True, batch_size=cfg_train.BATCH_SIZE, num_workers=4)
-        val_loader = validation.to_dataloader(train=False, batch_size=cfg_train.BATCH_SIZE, num_workers=4)
+        train_loader = training.to_dataloader(
+            train=True,
+            batch_size=cfg_train.BATCH_SIZE,
+            num_workers=multiprocessing.cpu_count() // 2,
+        )
+        val_loader = validation.to_dataloader(
+            train=False,
+            batch_size=cfg_train.BATCH_SIZE,
+            num_workers=multiprocessing.cpu_count() // 2,
+        )
 
         # Define model
         tft = TemporalFusionTransformer.from_dataset(
@@ -126,6 +135,7 @@ class Train:
             log_interval=10,
             reduce_on_plateau_patience=4,
         )
+        logger.debug(f"Number of parameters in network: {tft.size() / 1e3:.1f}k")
 
         # Callbacks
         early_stop_callback = EarlyStopping(monitor="val_loss", patience=5, mode="min")
@@ -148,35 +158,31 @@ class Train:
             callbacks=[lr_logger, early_stop_callback, checkpoint_callback],
             logger=tb_logger,
         )
-
         trainer.fit(model=tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
+        logger.success(f"Training complete. Best checkpoint saved to: {checkpoint_callback.best_model_path}")
+
+        # Save model
+        logger.info("Saving model...")
+        trainer.save_checkpoint(model_filepath)
+        logger.success(f"Model saved to: {model_filepath}")
 
         # Load best model
-        best_model_path = checkpoint_callback.best_model_path
-        tft = TemporalFusionTransformer.load_from_checkpoint(best_model_path)
+        trained_tft = TemporalFusionTransformer.load_from_checkpoint(model_filepath)
 
         # ---------------- EVALUATION ---------------- #
         actuals = torch.cat([y[0] for x, y in iter(val_loader)])
-        predictions = tft.predict(val_loader)
+        predictions = trained_tft.predict(val_loader, return_y=True)
 
         # Plot predictions vs actuals (first asset batch)
         plt.figure(figsize=(10, 5))
         plt.plot(actuals[: cfg_train.MAX_PREDICTION_LENGTH].detach().cpu().numpy(), label="Actual")
-        plt.plot(predictions[: cfg_train.MAX_PREDICTION_LENGTH].detach().cpu().numpy(), label="Prediction")
+        plt.plot(predictions.y[: cfg_train.MAX_PREDICTION_LENGTH].detach().cpu().numpy(), label="Prediction")
         plt.legend()
         plt.title("Prediction vs Actual")
         plt.xlabel("Time step")
         plt.ylabel("Target")
         plt.grid()
         plt.savefig("prediction_vs_actual.png")
-
-        logger.success(f"Training complete. Best checkpoint saved to: {best_model_path}")
-
-        # Save model
-        logger.info("Saving model...")
-        trainer.save_checkpoint(model_filepath)
-
-        logger.success(f"Model saved to: {model_filepath}")
 
 
 if __name__ == "__main__":
