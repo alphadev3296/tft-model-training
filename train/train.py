@@ -4,10 +4,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 from loguru import logger
-from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
+from pytorch_forecasting import MAE, TemporalFusionTransformer, TimeSeriesDataSet
 from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting.metrics import QuantileLoss
 
@@ -103,7 +103,7 @@ class Train:
             target_normalizer=GroupNormalizer(
                 groups=[
                     DSCols.ASSET.value,
-                ]
+                ],
             ),
             add_relative_time_idx=True,
             add_target_scales=True,
@@ -127,10 +127,10 @@ class Train:
         # Define model
         tft = TemporalFusionTransformer.from_dataset(
             training,
-            learning_rate=1e-3,
-            hidden_size=16,
-            attention_head_size=1,
-            dropout=0.1,
+            learning_rate=cfg_train.MODEL_LEARNING_RATE,
+            hidden_size=cfg_train.MODEL_HIDDEN_SIZE,
+            attention_head_size=cfg_train.MODEL_ATTENTION_HEAD_SIZE,
+            dropout=cfg_train.MODEL_DROP_OUT,
             loss=QuantileLoss(),
             log_interval=10,
             reduce_on_plateau_patience=4,
@@ -146,7 +146,6 @@ class Train:
             monitor="val_loss",
             mode="min",
         )
-        lr_logger = LearningRateMonitor()  # log the learning rate
         tb_logger = TensorBoardLogger("lightning_logs")  # logging results to a tensorboard
 
         # Train
@@ -155,7 +154,7 @@ class Train:
             max_epochs=cfg_train.MAX_EPOCHS,
             enable_model_summary=True,
             gradient_clip_val=0.1,
-            callbacks=[lr_logger, early_stop_callback, checkpoint_callback],
+            callbacks=[early_stop_callback, checkpoint_callback],
             logger=tb_logger,
         )
         trainer.fit(model=tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -172,6 +171,12 @@ class Train:
         # ---------------- EVALUATION ---------------- #
         actuals = torch.cat([y[0] for x, y in iter(val_loader)])
         predictions = trained_tft.predict(val_loader, return_y=True)
+        logger.debug(f"MAE: {MAE()(predictions.output, predictions.y)}")
+
+        raw_predictions = trained_tft.predict(val_loader, mode="raw", return_x=True)
+        for idx in range(1):
+            a = trained_tft.plot_prediction(raw_predictions.x, raw_predictions.output, idx=idx, add_loss_to_title=True)
+            a.savefig(f"prediction_{idx}.png")
 
         # Plot predictions vs actuals (first asset batch)
         plt.figure(figsize=(10, 5))

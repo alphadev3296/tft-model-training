@@ -37,7 +37,7 @@ class DSCols(Enum):
 
 
 class Config(BaseSettings):
-    DATASET_SIZE: int = 2_000_000  # means 2M dataset
+    DATASET_SIZE: int = 2_000_000  # means 2M dataset which covers 3.8 years
     TIME_IDX_STEP_SECS: int = 60  # means 1min
 
     MAX_ENCODER_LENGTH: int = 60  # past 60 time steps
@@ -47,7 +47,12 @@ class Config(BaseSettings):
     MAX_EPOCHS: int = 30
     SEED: int = 42
     TARGET_COL: str = DSCols.TARGET.value
-    TARGET_COEFF: float = 1_000_000
+    TARGET_COEFF: float = 1_000  # ensure most target value to be in range (-1, 1)
+
+    MODEL_HIDDEN_SIZE: int = 64
+    MODEL_ATTENTION_HEAD_SIZE: int = 4
+    MODEL_DROP_OUT: float = 0.1
+    MODEL_LEARNING_RATE: float = 1e-3
 
 
 config = Config()
