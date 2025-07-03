@@ -17,14 +17,14 @@ class Dataset:
     def generate_binance_dataset(cls, dataset_size: int, filepath: str | None = None) -> pd.DataFrame:
         # --- Init ---
         binance = Binance()
-        time_delta = relativedelta(minutes=dataset_size + 100)
+        time_delta = relativedelta(minutes=dataset_size + 200)
 
         # --- Step 1: Download OHLCV data in chunks ---
-        logger.info("Downloading data from Binance...")
+        logger.debug("Downloading data from Binance...")
 
         utc_now = datetime.now(tz=timezone.utc)  # noqa: UP017
         start_date = (utc_now - time_delta).isoformat()
-        logger.info(f"Start date: {start_date}")
+        logger.debug(f"Start date: {start_date}")
 
         all_data = binance.fetch_historical_ohlcvs(
             from_tstamp_ms=binance.parse8601(start_date),
@@ -32,16 +32,16 @@ class Dataset:
         )
 
         # --- Step 2: Format into DataFrame ---
-        logger.info("Processing data...")
+        logger.debug("Processing data...")
         df = cls.convert_ohlcvs_to_dataframe(all_data)
         df = df.tail(dataset_size)
 
         # --- Save ---
         if filepath:
             df.to_csv(filepath)
-            logger.info(f"✅ Dataset saved to: {filepath}")
+            logger.debug(f"✅ Dataset saved to: {filepath}")
 
-        logger.info(f"Total samples: {len(df):,}")
+        logger.debug(f"Total samples: {len(df):,}")
 
         return df
 
