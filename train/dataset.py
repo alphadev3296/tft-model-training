@@ -7,6 +7,7 @@ from dateutil.relativedelta import relativedelta
 from loguru import logger
 
 from shared.config.common import config as cfg_common
+from shared.config.train import DSCols
 from shared.config.train import config as cfg_train
 from shared.services.binance import Binance
 
@@ -50,35 +51,45 @@ class Dataset:
         Convert list of ohlcvs to DataFrame.
         The first 26+ rows will be dropped as they are incomplete in some columns.
         """
-        df = pd.DataFrame(ohlcvs, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-        df = df.set_index("timestamp")
+        df = pd.DataFrame(
+            ohlcvs,
+            columns=[
+                DSCols.TIMESTAMP.value,
+                DSCols.OPEN.value,
+                DSCols.HIGH.value,
+                DSCols.LOW.value,
+                DSCols.CLOSE.value,
+                DSCols.VOLUME.value,
+            ],
+        )
+        df[DSCols.TIMESTAMP.value] = pd.to_datetime(df[DSCols.TIMESTAMP.value], unit="ms")
+        df = df.set_index(DSCols.TIMESTAMP.value)
         df = df.astype(float)
 
         # Add time-based and cyclical features
-        df["hour"] = df.index.hour
+        df[DSCols.HOUR.value] = df.index.hour
         df["minute"] = df.index.minute
-        df["day_of_week"] = df.index.dayofweek
+        df[DSCols.DAY_OF_WEEK.value] = df.index.dayofweek
 
         # Cyclical encoding
-        df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
-        df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
-        df["dow_sin"] = np.sin(2 * np.pi * df["day_of_week"] / 7)
-        df["dow_cos"] = np.cos(2 * np.pi * df["day_of_week"] / 7)
+        df[DSCols.HOUR_SIN.value] = np.sin(2 * np.pi * df[DSCols.HOUR.value] / 24)
+        df[DSCols.HOUR_COS.value] = np.cos(2 * np.pi * df[DSCols.HOUR.value] / 24)
+        df[DSCols.DOW_SIN.value] = np.sin(2 * np.pi * df[DSCols.DAY_OF_WEEK.value] / 7)
+        df[DSCols.DOW_COS.value] = np.cos(2 * np.pi * df[DSCols.DAY_OF_WEEK.value] / 7)
 
         # Technical Indicators
-        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-        df["macd"] = ta.trend.MACD(df["close"]).macd()
-        df["bollinger_h"] = ta.volatility.BollingerBands(df["close"]).bollinger_hband()
-        df["bollinger_l"] = ta.volatility.BollingerBands(df["close"]).bollinger_lband()
-        df["sma_20"] = ta.trend.SMAIndicator(df["close"], window=20).sma_indicator()
-        df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+        df[DSCols.RSI.value] = ta.momentum.RSIIndicator(df[DSCols.CLOSE.value], window=14).rsi()
+        df[DSCols.MACD.value] = ta.trend.MACD(df[DSCols.CLOSE.value]).macd()
+        df[DSCols.BOLLINGER_H.value] = ta.volatility.BollingerBands(df[DSCols.CLOSE.value]).bollinger_hband()
+        df[DSCols.BOLLINGER_L.value] = ta.volatility.BollingerBands(df[DSCols.CLOSE.value]).bollinger_lband()
+        df[DSCols.SMA_20.value] = ta.trend.SMAIndicator(df[DSCols.CLOSE.value], window=20).sma_indicator()
+        df[DSCols.EMA_20.value] = ta.trend.EMAIndicator(df[DSCols.CLOSE.value], window=20).ema_indicator()
 
         # Target column (next-minute return)
-        df["target"] = df["close"].pct_change().shift(-1)
+        df[DSCols.TARGET.value] = df[DSCols.CLOSE.value].pct_change().shift(-1)
 
         # Clean
-        df["asset"] = "BTC"
+        df[DSCols.ASSET.value] = "BTC"
         return df.dropna()
 
 
