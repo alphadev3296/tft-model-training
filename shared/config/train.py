@@ -25,11 +25,16 @@ class DSCols(Enum):
     RSI = "rsi"
     MACD = "macd"
 
-    BOLLINGER_H = "bollinger_h"
-    BOLLINGER_L = "bollinger_l"
+    BL_UPPER = "bl_upper"
+    BL_LOWER = "bl_lower"
 
     SMA_20 = "sma_20"
+    SMA_50 = "sma_50"
+    SMA_200 = "sma_200"
+
     EMA_20 = "ema_20"
+    EMA_50 = "ema_50"
+    EMA_200 = "ema_200"
 
     TARGET = "target"
 

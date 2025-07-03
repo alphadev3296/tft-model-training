@@ -80,10 +80,16 @@ class Dataset:
         # Technical Indicators
         df[DSCols.RSI.value] = ta.momentum.RSIIndicator(df[DSCols.CLOSE.value], window=14).rsi()
         df[DSCols.MACD.value] = ta.trend.MACD(df[DSCols.CLOSE.value]).macd()
-        df[DSCols.BOLLINGER_H.value] = ta.volatility.BollingerBands(df[DSCols.CLOSE.value]).bollinger_hband()
-        df[DSCols.BOLLINGER_L.value] = ta.volatility.BollingerBands(df[DSCols.CLOSE.value]).bollinger_lband()
+        df[DSCols.BL_UPPER.value] = ta.volatility.BollingerBands(df[DSCols.CLOSE.value]).bollinger_hband()
+        df[DSCols.BL_LOWER.value] = ta.volatility.BollingerBands(df[DSCols.CLOSE.value]).bollinger_lband()
+
         df[DSCols.SMA_20.value] = ta.trend.SMAIndicator(df[DSCols.CLOSE.value], window=20).sma_indicator()
+        df[DSCols.SMA_50.value] = ta.trend.SMAIndicator(df[DSCols.CLOSE.value], window=50).sma_indicator()
+        df[DSCols.SMA_200.value] = ta.trend.SMAIndicator(df[DSCols.CLOSE.value], window=200).sma_indicator()
+
         df[DSCols.EMA_20.value] = ta.trend.EMAIndicator(df[DSCols.CLOSE.value], window=20).ema_indicator()
+        df[DSCols.EMA_50.value] = ta.trend.EMAIndicator(df[DSCols.CLOSE.value], window=50).ema_indicator()
+        df[DSCols.EMA_200.value] = ta.trend.EMAIndicator(df[DSCols.CLOSE.value], window=200).ema_indicator()
 
         # Target column (next-minute return)
         df[DSCols.TARGET.value] = df[DSCols.CLOSE.value].pct_change().shift(-1) * cfg_train.TARGET_COEFF
