@@ -2,7 +2,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+from lightning.pytorch.callbacks import EarlyStopping, LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.loggers import TensorBoardLogger
 from loguru import logger
 from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from pytorch_forecasting.data import GroupNormalizer
@@ -135,15 +136,17 @@ class Train:
             monitor="val_loss",
             mode="min",
         )
+        lr_logger = LearningRateMonitor()  # log the learning rate
+        tb_logger = TensorBoardLogger("lightning_logs")  # logging results to a tensorboard
 
         # Train
         logger.info("Training...")
         trainer = Trainer(
             max_epochs=cfg_train.MAX_EPOCHS,
+            enable_model_summary=True,
             gradient_clip_val=0.1,
-            callbacks=[early_stop_callback, checkpoint_callback],
-            accelerator="auto",
-            devices=1,
+            callbacks=[lr_logger, early_stop_callback, checkpoint_callback],
+            logger=tb_logger,
         )
 
         trainer.fit(model=tft, train_dataloaders=train_loader, val_dataloaders=val_loader)
