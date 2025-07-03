@@ -47,6 +47,7 @@ class Config(BaseSettings):
     MAX_EPOCHS: int = 30
     SEED: int = 42
     TARGET_COL: str = DSCols.TARGET.value
+    TARGET_COEFF: float = 1_000_000
 
 
 config = Config()

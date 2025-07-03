@@ -86,7 +86,7 @@ class Dataset:
         df[DSCols.EMA_20.value] = ta.trend.EMAIndicator(df[DSCols.CLOSE.value], window=20).ema_indicator()
 
         # Target column (next-minute return)
-        df[DSCols.TARGET.value] = df[DSCols.CLOSE.value].pct_change().shift(-1)
+        df[DSCols.TARGET.value] = df[DSCols.CLOSE.value].pct_change().shift(-1) * cfg_train.TARGET_COEFF
 
         # Clean
         df[DSCols.ASSET.value] = "BTC"

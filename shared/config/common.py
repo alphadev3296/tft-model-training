@@ -8,7 +8,7 @@ cur_dir = Path(__file__).parent
 root_dir = cur_dir.parent.parent
 
 dataset_dir = root_dir / "dataset"
-dataset_filename = "btc_usdt_tft_dataset_1k.csv"
+dataset_filename = "btc_usdt_tft_dataset_10k.csv"
 dataset_filepath = dataset_dir / dataset_filename
 
 model_dir = root_dir / "model"
