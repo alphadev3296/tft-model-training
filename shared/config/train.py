@@ -54,10 +54,13 @@ class Config(BaseSettings):
     TARGET_COL: str = DSCols.TARGET.value
     TARGET_COEFF: float = 1_000  # ensure most target value to be in range (-1, 1)
 
+    MODEL_LEARNING_RATE: float = 1e-3
     MODEL_HIDDEN_SIZE: int = 64
     MODEL_ATTENTION_HEAD_SIZE: int = 4
     MODEL_DROP_OUT: float = 0.1
-    MODEL_LEARNING_RATE: float = 1e-3
+    MODEL_REDUCE_PLATEAU: int = 4
+    MODEL_EARLY_STOP: int = 5
+    MODEL_GRADIENT_CLIPPING: float = 0.1
 
 
 config = Config()

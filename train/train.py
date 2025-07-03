@@ -137,12 +137,12 @@ class Train:
             dropout=cfg_train.MODEL_DROP_OUT,
             loss=QuantileLoss(),
             log_interval=10,
-            reduce_on_plateau_patience=4,
+            reduce_on_plateau_patience=cfg_train.MODEL_REDUCE_PLATEAU,
         )
         logger.debug(f"Number of parameters in network: {tft.size() / 1e3:.1f}k")
 
         # Callbacks
-        early_stop_callback = EarlyStopping(monitor="val_loss", patience=5, mode="min")
+        early_stop_callback = EarlyStopping(monitor="val_loss", patience=cfg_train.MODEL_EARLY_STOP, mode="min")
         checkpoint_callback = ModelCheckpoint(
             dirpath=cfg_common.MODEL_DIR,
             filename=cfg_common.CHECKPOINT_FILENAME,
@@ -157,7 +157,7 @@ class Train:
         trainer = Trainer(
             max_epochs=cfg_train.MAX_EPOCHS,
             enable_model_summary=True,
-            gradient_clip_val=0.1,
+            gradient_clip_val=cfg_train.MODEL_GRADIENT_CLIPPING,
             callbacks=[early_stop_callback, checkpoint_callback],
             logger=tb_logger,
         )
