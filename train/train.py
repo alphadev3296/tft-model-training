@@ -9,6 +9,7 @@ from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting.metrics import QuantileLoss
 
 from shared.config.common import config as cfg_common
+from shared.config.train import DSCols
 from shared.config.train import config as cfg_train
 
 
@@ -28,35 +29,25 @@ class Train:
 
         # Load data
         logger.info("Loading data...")
-        df = pd.read_csv(dataset_filepath, parse_dates=["timestamp"])
-        df = df.sort_values(["asset", "timestamp"])
+        df = pd.read_csv(dataset_filepath, parse_dates=[DSCols.TIMESTAMP.value])
+        df = df.sort_values([DSCols.ASSET.value, DSCols.TIMESTAMP.value])
 
         # Create time index (relative to earliest timestamp)
         logger.info("Creating time index...")
-        df["time_idx"] = (df["timestamp"] - df["timestamp"].min()).dt.total_seconds() // cfg_train.TIME_IDX_STEP_SECONDS
-        df["time_idx"] = df["time_idx"].astype(int)
 
-        # Normalize continuous features (except sin/cos or target)
-        logger.info("Normalizing continuous features...")
-        features_to_normalize = [
-            "open",
-            "high",
-            "low",
-            "close",
-            "volume",
-            "rsi",
-            "macd",
-            "bollinger_h",
-            "bollinger_l",
-            "sma_20",
-            "ema_20",
-        ]
-        for col in features_to_normalize:
-            df[col] = (df[col] - df[col].mean()) / df[col].std()
+        df[DSCols.TIME_IDX.value] = (
+            df[DSCols.TIMESTAMP.value] - df[DSCols.TIMESTAMP.value].min()
+        ).dt.total_seconds() // cfg_train.TIME_IDX_STEP_SECS
+        df[DSCols.TIME_IDX.value] = df[DSCols.TIME_IDX.value].astype(int)
 
         # Convert categoricals to string type for proper encoding
         logger.info("Converting categoricals to string type...")
-        categorical_cols = ["hour", "minute", "day_of_week", "asset"]
+        categorical_cols = [
+            DSCols.HOUR.value,
+            DSCols.MINUTE.value,
+            DSCols.DAY_OF_WEEK.value,
+            DSCols.ASSET.value,
+        ]
         for col in categorical_cols:
             df[col] = df[col].astype(str)
 
@@ -65,23 +56,53 @@ class Train:
 
         # Train/val split by time
         logger.info("Creating train/val split...")
-        last_train_time = df["time_idx"].max() - cfg_train.MAX_PREDICTION_LENGTH
-        train_df = df[df["time_idx"] <= last_train_time]
-        val_df = df[df["time_idx"] > last_train_time - cfg_train.MAX_ENCODER_LENGTH]
+        last_train_time = df[DSCols.TIME_IDX.value].max() - cfg_train.MAX_PREDICTION_LENGTH
+        train_df = df[df[DSCols.TIME_IDX.value] <= last_train_time]
+        val_df = df[df[DSCols.TIME_IDX.value] > last_train_time - cfg_train.MAX_ENCODER_LENGTH]
 
         # Define TimeSeriesDataSet
         training = TimeSeriesDataSet(
             train_df,
-            time_idx="time_idx",
+            time_idx=DSCols.TIME_IDX.value,
             target=cfg_train.TARGET_COL,
-            group_ids=["asset"],
+            group_ids=[
+                DSCols.ASSET.value,
+            ],
             max_encoder_length=cfg_train.MAX_ENCODER_LENGTH,
             max_prediction_length=cfg_train.MAX_PREDICTION_LENGTH,
-            static_categoricals=["asset"],
-            time_varying_known_categoricals=["hour", "minute", "day_of_week"],
-            time_varying_known_reals=["hour_sin", "hour_cos", "dow_sin", "dow_cos"],
-            time_varying_unknown_reals=[*features_to_normalize, cfg_train.TARGET_COL],
-            target_normalizer=GroupNormalizer(groups=["asset"]),
+            static_categoricals=[
+                DSCols.ASSET.value,
+            ],
+            time_varying_known_categoricals=[
+                DSCols.HOUR.value,
+                DSCols.MINUTE.value,
+                DSCols.DAY_OF_WEEK.value,
+            ],
+            time_varying_known_reals=[
+                DSCols.HOUR_SIN.value,
+                DSCols.HOUR_COS.value,
+                DSCols.DOW_SIN.value,
+                DSCols.DOW_COS.value,
+            ],
+            time_varying_unknown_reals=[
+                DSCols.OPEN.value,
+                DSCols.HIGH.value,
+                DSCols.LOW.value,
+                DSCols.CLOSE.value,
+                DSCols.VOLUME.value,
+                DSCols.RSI.value,
+                DSCols.MACD.value,
+                DSCols.BOLLINGER_H.value,
+                DSCols.BOLLINGER_L.value,
+                DSCols.SMA_20.value,
+                DSCols.EMA_20.value,
+                DSCols.TARGET.value,
+            ],
+            target_normalizer=GroupNormalizer(
+                groups=[
+                    DSCols.ASSET.value,
+                ]
+            ),
             add_relative_time_idx=True,
             add_target_scales=True,
             add_encoder_length=True,

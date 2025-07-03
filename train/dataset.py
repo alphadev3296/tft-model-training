@@ -21,7 +21,7 @@ class Dataset:
         exchange = ccxt.binance()
         exchange.load_markets()
         time_delta = relativedelta(minutes=dataset_size)
-        resolution_ms = cfg_train.TIME_IDX_STEP_SECONDS * 1000
+        resolution_ms = cfg_train.TIME_IDX_STEP_SECS * 1000
         limit = 1000  # Max per request
 
         # --- Step 1: Download OHLCV data in chunks ---
